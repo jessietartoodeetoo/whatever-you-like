@@ -11,6 +11,10 @@ MotorGroup intakeMotors ({8,-3});
 Motor intakeLiftMotor (-5);
 Motor trayLiftMotor (7);
 
+MotorGroup intakeMotors({8, -3}); 
+Motor intakeLiftMotor(-5);
+Motor trayLiftMotor(7);
+
 //--- Import the Path File ---
 // This tells PROS to look in the s tatic folder and grab our file
 ASSET(path_txt);
@@ -70,6 +74,14 @@ void initialize() {
     intakeLiftMotor.set_brake_mode(pros:: E_MOTOR_BRAKE_HOLD);
     trayLiftMotor.set_brake_mode (pros:: E_MOTOR_BRAKE_BRAKE);
 
+    //---Encoder Calibration---
+    intakeLiftMotor.tare_position();
+    trayLiftMotor.tare_position();
+
+    //Set brake modes so they hold position
+    intakeLiftMotor.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
+    trayLiftMotor.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
+
     // Calibrate the chassis (calibrates the IMU and starts odometry)
     chassis.calibrate(); 
 }
@@ -93,6 +105,17 @@ void follow_path (){
     //This prevents the robot from skipping to the next line of code before it finishes driving
     chassis.waitUntilDone();
 }
+
+//--Speed Limits---
+const int INTAKE_SPEED = 127;
+const int ARM_UP_SPEED = 100;
+const int ARM_DOWN_SPEED = 70;
+const int TRAY_OUT_SPEED = 50;
+const int TRAY_IN_SPEED = 70;
+
+//--Encoder Limits (Software Hard Stops)---
+const double LIFT_MAX_POS = 3000.0;
+const double TRAY_MAX_POS = 1750.0;
 
 /**
  * Runs the operator control code.
