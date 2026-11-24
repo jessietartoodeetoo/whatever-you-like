@@ -1,9 +1,20 @@
 #include "main.h"
 
+ASSET(path_txt); //means path.txt
+
 // --- Motors ---
 // Standard PROS motor groups. (Negative ports reverse the motor)
 MotorGroup leftMotors({1, 9});
 MotorGroup rightMotors({-2, -10});
+
+MotorGroup intakeMotors ({8,-3});
+Motor intakeLiftMotor (-5);
+Motor trayLiftMotor (7);
+
+//--- Import the Path File ---
+// This tells PROS to look in the s tatic folder and grab our file
+ASSET(path_txt);
+
 
 // --- Drivetrain Configuration ---
 Drivetrain drivetrain(&leftMotors, // left motor group
@@ -23,6 +34,7 @@ OdomSensors sensors(nullptr, // vertical tracking wheel 1
 
 // --- PID Controllers ---
 // Placeholder values - you will need to tune these!
+//ControllerSettings (kP, kI, kD, windup, smallError, smallErrorTime, largeError, largeErrorTime, slew);
 ControllerSettings lateral_controller(10, 0, 3, 3, 1, 100, 3, 500, 20);
 ControllerSettings angular_controller(2, 0, 10, 3, 1, 100, 3, 500, 0);
 
@@ -51,6 +63,13 @@ void initialize() {
     lcd::set_text(1, "Hello BH Student!");
     lcd::register_btn1_cb(on_center_button);
 
+    //Encoder Limits
+    intakeLiftMotor.tare_position();
+    trayLiftMotor.tare_position();
+    //SetBrakes
+    intakeLiftMotor.set_brake_mode(pros:: E_MOTOR_BRAKE_HOLD);
+    trayLiftMotor.set_brake_mode (pros:: E_MOTOR_BRAKE_BRAKE);
+
     // Calibrate the chassis (calibrates the IMU and starts odometry)
     chassis.calibrate(); 
 }
@@ -61,50 +80,123 @@ void competition_initialize() {}
 
 void autonomous() {}
 
+void follow_path (){
+    // 1. Set Start Position
+    // The X, Y, and Heading must exactly match the start of your JerryIO path!
+    chassis.setPose(0, 0, 0);
+
+    //2. Follow the Path
+    //Parameters: (Asset Name, Lookahead Distance, Timeout in milliseconds)
+    chassis.follow(path_txt, 5, 3000);
+
+    //3. Wait for Completion
+    //This prevents the robot from skipping to the next line of code before it finishes driving
+    chassis.waitUntilDone();
+}
+
 /**
  * Runs the operator control code.
  */
 void opcontrol() {
     // Thanks to PROS_USE_SIMPLE_NAMES, we can just say CONTROLLER_MASTER
     Controller master(CONTROLLER_MASTER);
-    int driveMode = 0; // 0: Tank, 1: Arcade, 2: Curvature
 
-    // --- Screen UI Initial Setup ---
-    // Print the initial state once before entering the loop
-    lcd::print(1, "Mode: Tank");
+    //Speed Limits
+    const int INTAKE_SPEED = 127;
+    const int ARM_UP_SPEED = 100;
+    const int ARM_DOWN_SPEED = 70;
+    const int TRAY_OUT_SPEED = 50;
+    const int TRAY_IN_SPEED = 70;
 
-    while (true) {
-        // --- Toggle modes ---
-        if (master.get_digital_new_press(DIGITAL_R1)) {
-            driveMode = (driveMode + 1) % 3;
-            
-            // ONLY update the screen when the mode actually changes.
-            lcd::print(1, "Mode: %s", 
-                (driveMode == 0 ? "Tank" : driveMode == 1 ? "Arcade" : "Curvature"));
-        }
 
-        // --- Metric Movement Test (~30cm) ---
+
+    // Encoder Limits (Hard Stops)
+    const double LIFT_MAX_POS = 3000.0;
+    const double TRAY_MAX_POS = 1750.0;
+
+    while (true) { 
+        
+          // --- Manual Drive Logic ---
+        int throttle = master.get_analog(ANALOG_LEFT_Y);
+        int turn = master.get_analog(ANALOG_RIGHT_X);
+     
+        chassis.curvature (throttle, turn);
+
+        // --- Follow Predefined Path ---
         if (master.get_digital_new_press(DIGITAL_X)) {
-            chassis.setPose(0, 0, 0);
-            chassis.moveToPoint(0, 11.81, 2000);
-            chassis.waitUntilDone();
+            follow_path();
+            //chassis.moveToPoint(0,24,2000);
+            //chassis.turnToHeading(90,2000);
         }
 
-        // --- Manual Drive Logic ---
-        int leftY = master.get_analog(ANALOG_LEFT_Y);
-        int rightY = master.get_analog(ANALOG_RIGHT_Y);
-        int rightX = master.get_analog(ANALOG_RIGHT_X);
+        //Intake Control
+        if (master.get_digital(DIGITAL_R2)){
+            intakeMotors.move(INTAKE_SPEED);
+        }else if (master.get_digital(DIGITAL_L2)){
+            intakeMotors.move(-INTAKE_SPEED);
+        }else{
+            intakeMotors.brake();
+        }
 
-        if (driveMode == 0) {
-            chassis.tank(leftY, rightY);
-        } 
-        else if (driveMode == 1) {
-            chassis.arcade(leftY, rightX);
-        } 
-        else if (driveMode == 2) {
-            chassis.curvature(leftY, rightX);
+        //Get Motor Positions
+        double currentLiftPos = intakeLiftMotor.get_position();
+        double currentTrayPos = trayLiftMotor.get_position();
+
+        //Lift Arm
+        if (master.get_digital(DIGITAL_R1) && currentLiftPos < LIFT_MAX_POS){
+            intakeLiftMotor.move(ARM_UP_SPEED);
+        }else if (master.get_digital(DIGITAL_L1) && currentLiftPos > 0){
+            intakeLiftMotor.move(ARM_DOWN_SPEED);
+        }else {
+            intakeLiftMotor.brake();
+        }
+
+        //Tray Motor
+        if (master.get_digital(DIGITAL_UP) && currentTrayPos < TRAY_MAX_POS){
+            trayLiftMotor.move(TRAY_OUT_SPEED);
+        }else if (master.get_digital(DIGITAL_DOWN) && currentTrayPos > 0){
+            trayLiftMotor.move(TRAY_IN_SPEED);
+        }else {
+            trayLiftMotor.brake();
         }
 
         delay(10); 
+    }
+}
+
+//LemLib
+
+// This part of the code needs to be changed to match LemLib
+// Since it is not LemLib, it will not work 
+int main() {
+    //vexcodeInit();
+
+    while (true){
+       
+        // RED = stop for 3 seconds, then move left
+        if (currentColor == color::red){
+            leftMotors.stop();
+            rightMotors.stop();
+            wait(3, seconds);
+
+            leftMotors.spin(reverse);
+            rightMotors.spin(reverse);
+        }
+
+        // BLUE = ignore, just move left
+        else if (currentColor == color::blue){
+            leftMotors.spin(reverse);
+            rightMotors.spin(reverse);
+        }
+
+        // GREEN = two 360 spins
+        else if (currentColor == color::green){
+            leftMotors.spinFor(forward, 360, degrees);
+            rightMotors.spinfor(forward, 360, degrees);
+
+            leftMotors.spinFor(forward, 360, degrees);
+            rightMotors.spinFor(forward, 360, degrees);
+        }
+           
     }
 }
